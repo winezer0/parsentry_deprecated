@@ -65,11 +65,15 @@ pub struct FilteringConfig {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ApiConfig {
     pub base_url: Option<String>,
+    #[serde(default)]
+    pub api_keys: HashMap<String, String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct RepoConfig {
     pub url: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -112,7 +116,7 @@ fn default_min_confidence() -> i32 {
 }
 
 fn default_language() -> String {
-    "ja".to_string()
+    "zh".to_string()
 }
 
 fn default_call_graph_format() -> String {
@@ -157,6 +161,7 @@ impl Default for ApiConfig {
     fn default() -> Self {
         Self {
             base_url: None,
+            api_keys: HashMap::new(),
         }
     }
 }
@@ -165,6 +170,7 @@ impl Default for RepoConfig {
     fn default() -> Self {
         Self {
             url: None,
+            token: None,
         }
     }
 }
@@ -234,7 +240,7 @@ impl ParsentryConfig {
 [analysis]
 model = "o4-mini"
 min_confidence = 70
-language = "ja"
+language = "zh"
 debug = false
 evaluate = false
 verbosity = 0
@@ -248,10 +254,15 @@ verbosity = 0
 # vuln_types = ["SQLI", "XSS", "RCE"]
 
 [api]
-# base_url = "https://api.example.com"
+# base_url = "https://api.openai.com/v1"
+# [api.api_keys]
+# openai = "your_openai_api_key"
+# groq = "your_groq_api_key"
+# azure = "your_azure_openai_key"
 
 [repo]
 # url = "hikaruegashira/hikae-vulnerable-javascript"
+# token = "your_github_token"
 
 [generation]
 generate_patterns = false
@@ -279,6 +290,7 @@ security_focus = false
     pub fn find_default_config() -> Option<PathBuf> {
         let search_paths = vec![
             "./parsentry.toml",
+            "./config/parsentry.toml",
             "~/.config/parsentry/config.toml",
             "/etc/parsentry/config.toml",
         ];
@@ -309,77 +321,7 @@ security_focus = false
         }
     }
 
-    pub fn apply_env_vars(&mut self, env_vars: &HashMap<String, String>) -> Result<()> {
-        for (key, value) in env_vars {
-            if let Some(config_key) = key.strip_prefix("PARSENTRY_") {
-                match config_key {
-                    "ANALYSIS_MODEL" => self.analysis.model = value.clone(),
-                    "ANALYSIS_MIN_CONFIDENCE" => {
-                        self.analysis.min_confidence = value.parse()
-                            .map_err(|_| anyhow!("Invalid min_confidence value: {}", value))?;
-                    }
-                    "ANALYSIS_LANGUAGE" => self.analysis.language = value.clone(),
-                    "ANALYSIS_DEBUG" => {
-                        self.analysis.debug = value.parse()
-                            .map_err(|_| anyhow!("Invalid debug value: {}", value))?;
-                    }
-                    "ANALYSIS_EVALUATE" => {
-                        self.analysis.evaluate = value.parse()
-                            .map_err(|_| anyhow!("Invalid evaluate value: {}", value))?;
-                    }
-                    "ANALYSIS_VERBOSITY" => {
-                        self.analysis.verbosity = value.parse()
-                            .map_err(|_| anyhow!("Invalid verbosity value: {}", value))?;
-                    }
-                    "PATHS_ROOT" => self.paths.root = Some(PathBuf::from(value)),
-                    "PATHS_OUTPUT_DIR" => self.paths.output_dir = Some(PathBuf::from(value)),
-                    "PATHS_ANALYZE" => self.paths.analyze = Some(PathBuf::from(value)),
-                    "FILTERING_VULN_TYPES" => {
-                        let types: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                        self.filtering.vuln_types = Some(types);
-                    }
-                    "API_BASE_URL" => self.api.base_url = Some(value.clone()),
-                    "REPO_URL" => self.repo.url = Some(value.clone()),
-                    "GENERATION_GENERATE_PATTERNS" => {
-                        self.generation.generate_patterns = value.parse()
-                            .map_err(|_| anyhow!("Invalid generate_patterns value: {}", value))?;
-                    }
-                    "CALL_GRAPH_ENABLED" => {
-                        self.call_graph.call_graph = value.parse()
-                            .map_err(|_| anyhow!("Invalid call_graph value: {}", value))?;
-                    }
-                    "CALL_GRAPH_FORMAT" => self.call_graph.format = value.clone(),
-                    "CALL_GRAPH_OUTPUT" => self.call_graph.output = Some(PathBuf::from(value)),
-                    "CALL_GRAPH_START_FUNCTIONS" => {
-                        let functions: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                        self.call_graph.start_functions = Some(functions);
-                    }
-                    "CALL_GRAPH_MAX_DEPTH" => {
-                        self.call_graph.max_depth = Some(value.parse()
-                            .map_err(|_| anyhow!("Invalid call_graph_max_depth value: {}", value))?);
-                    }
-                    "CALL_GRAPH_INCLUDE" => {
-                        let patterns: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                        self.call_graph.include = Some(patterns);
-                    }
-                    "CALL_GRAPH_EXCLUDE" => {
-                        let patterns: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                        self.call_graph.exclude = Some(patterns);
-                    }
-                    "CALL_GRAPH_DETECT_CYCLES" => {
-                        self.call_graph.detect_cycles = value.parse()
-                            .map_err(|_| anyhow!("Invalid detect_cycles value: {}", value))?;
-                    }
-                    "CALL_GRAPH_SECURITY_FOCUS" => {
-                        self.call_graph.security_focus = value.parse()
-                            .map_err(|_| anyhow!("Invalid security_focus value: {}", value))?;
-                    }
-                    _ => {} // Ignore unknown environment variables
-                }
-            }
-        }
-        Ok(())
-    }
+    
 
 
     pub fn apply_scan_args(&mut self, args: &ScanArgs) -> Result<()> {
@@ -442,7 +384,6 @@ security_focus = false
     pub fn load_with_precedence(
         config_path: Option<PathBuf>,
         cli_args: &ScanArgs,
-        env_vars: &HashMap<String, String>
     ) -> Result<Self> {
         let mut config = if let Some(path) = config_path {
             Self::load_from_file(&path)
@@ -452,7 +393,6 @@ security_focus = false
                 .unwrap_or_else(|_| Self::default())
         };
         
-        config.apply_env_vars(env_vars)?;
         config.apply_scan_args(cli_args)?;
         config.validate()?;
         
@@ -529,7 +469,7 @@ mod tests {
         let config = ParsentryConfig::default();
         assert_eq!(config.analysis.model, "o4-mini");
         assert_eq!(config.analysis.min_confidence, 70);
-        assert_eq!(config.analysis.language, "ja");
+        assert_eq!(config.analysis.language, "zh");
         assert!(!config.analysis.debug);
         assert!(!config.analysis.evaluate);
         assert_eq!(config.analysis.verbosity, 0);
@@ -565,13 +505,9 @@ vuln_types = ["SQLI", "XSS"]
     #[test]
     fn test_env_var_application() {
         let mut config = ParsentryConfig::default();
-        let mut env_vars = HashMap::new();
-        env_vars.insert("PARSENTRY_ANALYSIS_MODEL".to_string(), "gpt-4".to_string());
-        env_vars.insert("PARSENTRY_ANALYSIS_MIN_CONFIDENCE".to_string(), "90".to_string());
-        env_vars.insert("PARSENTRY_ANALYSIS_DEBUG".to_string(), "true".to_string());
-        
-        config.apply_env_vars(&env_vars).unwrap();
-        
+        config.analysis.model = "gpt-4".to_string();
+        config.analysis.min_confidence = 90;
+        config.analysis.debug = true;
         assert_eq!(config.analysis.model, "gpt-4");
         assert_eq!(config.analysis.min_confidence, 90);
         assert!(config.analysis.debug);
@@ -601,7 +537,7 @@ root = "test"
         assert!(config_string.contains("[analysis]"));
         assert!(config_string.contains("model = \"o4-mini\""));
         assert!(config_string.contains("min_confidence = 70"));
-        assert!(config_string.contains("language = \"ja\""));
+        assert!(config_string.contains("language = \"zh\""));
     }
 
     #[test]

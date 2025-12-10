@@ -31,14 +31,14 @@ env_logger = "0.11"
 anyhow = "1.0"
 async-trait = "0.1"
 quick-xml = { version = "0.31", features = ["serialize"] }
-dotenvy = "0.15"
-genai = "0.4.0-alpha.15"
+async-openai = "0.20"
 futures = { version = "0.3", features = ["thread-pool"] }
 tree-sitter-ruby = "0.20"
 indicatif = "0.17"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 insta = { version = "1.42.0", features = ["yaml"] }
@@ -51,8 +51,7 @@ exclude = ["tree-sitter-*"]
 [workspace.metadata.insta]
 snapshot-path = "tests/snapshots"
 
-[patch.crates-io]
-genai = { git = "https://github.com/HikaruEgashira/rust-genai", rev = "e3944faad32e9682895d7699f060027881b9fd84" }
+ 
 
 # APIを使用するテストの設定
 [[test]]

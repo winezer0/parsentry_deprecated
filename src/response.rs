@@ -317,33 +317,33 @@ impl Response {
     }
 
     pub fn print_readable(&self) {
-        println!("\n📝 PAR Security Analysis Report");
+        println!("\n📝 PAR 安全分析报告");
         println!("{}", "=".repeat(80));
 
         let confidence_icon = match self.confidence_score {
-            90..=100 => "🔴 高",
-            70..=89 => "🟠 中高",
-            50..=69 => "🟡 中",
-            30..=49 => "🟢 中低",
-            _ => "🔵 低",
+            90..=100 => "🔴 High",
+            70..=89 => "🟠 Medium-High",
+            50..=69 => "🟡 Medium",
+            30..=49 => "🟢 Medium-Low",
+            _ => "🔵 Low",
         };
         println!(
-            "\n🎯 信頼度スコア: {} ({})",
+            "\n🎯 置信度分数: {} ({})",
             self.confidence_score, confidence_icon
         );
 
         if !self.vulnerability_types.is_empty() {
-            println!("\n⚠ 検出された脆弱性タイプ:");
+            println!("\n⚠ 检测到的漏洞类型:");
             for vuln_type in &self.vulnerability_types {
                 println!("  - {:?}", vuln_type);
             }
         }
 
-        println!("\n🔍 PAR Policy Analysis:");
+        println!("\n🔍 PAR 策略分析:");
         println!("{}", "-".repeat(80));
 
         if !self.par_analysis.principals.is_empty() {
-            println!("\n🧑 Principals (データ源):");
+            println!("\n🧑 Principals (数据源):");
             for principal in &self.par_analysis.principals {
                 println!(
                     "  - {}: {:?} ({})",
@@ -353,7 +353,7 @@ impl Response {
         }
 
         if !self.par_analysis.actions.is_empty() {
-            println!("\n⚙ Actions (セキュリティ制御):");
+            println!("\n⚙ Actions (安全控制):");
             for action in &self.par_analysis.actions {
                 println!(
                     "  - {}: {:?} ({})",
@@ -363,7 +363,7 @@ impl Response {
         }
 
         if !self.par_analysis.resources.is_empty() {
-            println!("\n🗄 Resources (操作対象):");
+            println!("\n🗄 Resources (操作对象):");
             for resource in &self.par_analysis.resources {
                 println!(
                     "  - {}: {:?} ({})",
@@ -373,7 +373,7 @@ impl Response {
         }
 
         if !self.par_analysis.policy_violations.is_empty() {
-            println!("\n❌ Policy Violations:");
+            println!("\n❌ 策略违规:");
             for violation in &self.par_analysis.policy_violations {
                 println!("  - {}: {}", violation.rule_id, violation.rule_description);
                 println!("    Path: {}", violation.violation_path);
@@ -384,18 +384,18 @@ impl Response {
             }
         }
 
-        println!("\n📊 詳細解析:");
+        println!("\n📊 详细分析:");
         println!("{}", "-".repeat(80));
         println!("{}", self.analysis);
 
         if !self.poc.is_empty() {
-            println!("\n🔨 PoC(概念実証コード):");
+            println!("\n🔨 PoC(概念验证代码):");
             println!("{}", "-".repeat(80));
             println!("{}", self.poc);
         }
 
         if !self.remediation_guidance.policy_enforcement.is_empty() {
-            println!("\n🔧 修復ガイダンス:");
+            println!("\n🔧 修复指导:");
             println!("{}", "-".repeat(80));
             for remediation in &self.remediation_guidance.policy_enforcement {
                 println!("Component: {}", remediation.component);
@@ -407,7 +407,7 @@ impl Response {
         }
 
         if !self.scratchpad.is_empty() {
-            println!("\n📓 解析ノート:");
+            println!("\n📓 分析笔记:");
             println!("{}", "-".repeat(80));
             println!("{}", self.scratchpad);
         }

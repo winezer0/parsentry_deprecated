@@ -1,15 +1,12 @@
 use anyhow::{Error, Result};
-use genai::chat::{ChatMessage, ChatOptions, ChatRequest, JsonSpec};
-use genai::resolver::{AuthData, Endpoint, ServiceTargetResolver};
-use genai::{Client, ClientConfig};
-use genai::{ModelIden, ServiceTarget, adapter::AdapterKind};
+use crate::ai::{client::AiClient, models::AiSettings};
 use log::{debug, error, info, warn};
 use regex::escape;
 use serde::de::DeserializeOwned;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio::time::timeout;
+use tokio::time::sleep;
 
 use crate::locales::Language;
 use crate::parser::CodeParser;
@@ -47,105 +44,20 @@ fn save_debug_file(
     Ok(())
 }
 
-fn create_api_client(api_base_url: Option<&str>) -> Client {
-    let client_config = ClientConfig::default().with_chat_options(
-        ChatOptions::default()
-            .with_normalize_reasoning_content(true)
-            .with_response_format(JsonSpec::new("json_object", response_json_schema())),
-    );
-
-    let mut client_builder = Client::builder().with_config(client_config);
-
-    // Add custom service target resolver if base URL is provided
-    if let Some(base_url) = api_base_url {
-        let target_resolver = create_custom_target_resolver(base_url);
-        client_builder = client_builder.with_service_target_resolver(target_resolver);
-    }
-
-    client_builder.build()
+fn build_ai_client(api_base_url: Option<&str>, model: &str) -> Result<AiClient> {
+    let mut cfg = AiSettings::from_config(&crate::config::ParsentryConfig::find_and_load_default().unwrap_or_default())
+        .ok_or_else(|| anyhow::anyhow!("missing api_key in config"))?;
+    cfg.base_url = api_base_url.map(|s| s.to_string());
+    cfg.model = model.to_string();
+    Ok(AiClient::new(&cfg))
 }
 
-fn create_custom_target_resolver(base_url: &str) -> ServiceTargetResolver {
-    let base_url_owned = base_url.to_string();
-    let disable_v1_path = std::env::var("PARSENTRY_DISABLE_V1_PATH").is_ok();
-
-    ServiceTargetResolver::from_resolver_fn(
-        move |service_target: ServiceTarget| -> Result<ServiceTarget, genai::resolver::Error> {
-            let ServiceTarget { model, .. } = service_target;
-
-            // Check if we should use a different adapter to avoid /v1 path appending
-            let (adapter_kind, final_endpoint) = if disable_v1_path {
-                // Use Groq adapter which doesn't append /v1/chat/completions
-                // This allows us to use the full URL as-is
-                println!(
-                    "🔍 Debug: Using Groq adapter (PARSENTRY_DISABLE_V1_PATH=true) with URL: {}",
-                    base_url_owned
-                );
-                (AdapterKind::Groq, base_url_owned.clone())
-            } else {
-                // Default behavior: OpenAI adapter automatically adds /v1/chat/completions
-                println!(
-                    "🔍 Debug: Using OpenAI adapter with base URL: {}",
-                    base_url_owned
-                );
-                (AdapterKind::OpenAI, base_url_owned.clone())
-            };
-
-            let endpoint = Endpoint::from_owned(final_endpoint);
-            let model = ModelIden::new(adapter_kind, model.model_name);
-
-            // Use the OPENAI_API_KEY environment variable as the new key when using custom URL
-            let auth = AuthData::from_env("OPENAI_API_KEY");
-
-            Ok(ServiceTarget {
-                endpoint,
-                auth,
-                model,
-            })
-        },
-    )
-}
-
-async fn execute_chat_request(
-    client: &Client,
-    model: &str,
-    chat_req: ChatRequest,
-) -> Result<String> {
-    let result = timeout(Duration::from_secs(240), async {
-        client.exec_chat(model, chat_req, None).await
-    })
-    .await;
-
-    match result {
-        Ok(Ok(chat_res)) => {
-            if let Some(reasoning) = chat_res.reasoning_content.as_ref() {
-                debug!("[LLM Reasoning]\n{}", reasoning);
-            }
-            match chat_res.first_text() {
-                Some(content) => Ok(content.to_string()),
-                None => {
-                    error!("Failed to get content text from chat response");
-                    Err(anyhow::anyhow!(
-                        "Failed to get content text from chat response"
-                    ))
-                }
-            }
-        },
-        Ok(Err(e)) => {
-            error!("Chat request failed: {}", e);
-            Err(e.into())
-        }
-        Err(_) => {
-            error!("Chat request timed out after 240 seconds");
-            Err(anyhow::anyhow!("Chat request timed out after 180 seconds"))
-        }
-    }
-}
 
 async fn execute_chat_request_with_retry(
-    client: &Client,
+    client: &AiClient,
     model: &str,
-    chat_req: ChatRequest,
+    system_prompt: &str,
+    user_prompt: &str,
     max_retries: u32,
 ) -> Result<String> {
     let mut last_error = None;
@@ -157,15 +69,14 @@ async fn execute_chat_request_with_retry(
                 attempt + 1,
                 max_retries + 1
             );
-            // 指数バックオフで待機
-            tokio::time::sleep(Duration::from_millis(1000 * (1 << attempt))).await;
+            sleep(Duration::from_millis(1000 * (1 << attempt))).await;
         }
 
-        match execute_chat_request(client, model, chat_req.clone()).await {
+        match client.chat_json(model, system_prompt, user_prompt).await {
             Ok(result) => return Ok(result),
             Err(e) => {
                 warn!("Chat request failed on attempt {}: {}", attempt + 1, e);
-                last_error = Some(e);
+                last_error = Some(anyhow::anyhow!(e.to_string()));
             }
         }
     }
@@ -173,12 +84,21 @@ async fn execute_chat_request_with_retry(
     Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All retry attempts failed")))
 }
 
+//
+
 fn parse_json_response<T: DeserializeOwned>(chat_content: &str) -> Result<T> {
     match serde_json::from_str(chat_content) {
         Ok(response) => Ok(response),
         Err(e) => {
             debug!("Failed to parse JSON response: {}", e);
             debug!("Response content: {}", chat_content);
+            // Fallback: try to extract first JSON object from text
+            if let (Some(start), Some(end)) = (chat_content.find('{'), chat_content.rfind('}')) {
+                let slice = &chat_content[start..=end];
+                if let Ok(resp2) = serde_json::from_str(slice) {
+                    return Ok(resp2);
+                }
+            }
             Err(anyhow::anyhow!("Failed to parse JSON response: {}", e))
         }
     }
@@ -299,15 +219,9 @@ pub async fn analyze_file(
         }
     }
 
-    let chat_req = ChatRequest::new(vec![
-        ChatMessage::system(
-            "You are a security vulnerability analyzer. You must reply with exactly one JSON object that matches the PAR analysis schema with scratchpad, analysis, poc, confidence_score, vulnerability_types, par_analysis (with principals, actions, resources, policy_violations), and remediation_guidance fields. Do not include any explanatory text outside the JSON object.",
-        ),
-        ChatMessage::user(&prompt),
-    ]);
-
-    let json_client = create_api_client(api_base_url);
-    let chat_content = execute_chat_request(&json_client, model, chat_req).await?;
+    let system_prompt = "You are a security vulnerability analyzer. You must reply with exactly one JSON object that matches the PAR analysis schema with scratchpad, analysis, poc, confidence_score, vulnerability_types, par_analysis (with principals, actions, resources, policy_violations), and remediation_guidance fields. Do not include any explanatory text outside the JSON object.";
+    let json_client = build_ai_client(api_base_url, model)?;
+    let chat_content = json_client.chat_json(model, system_prompt, &prompt).await?;
     debug!("[LLM Response]\n{}", chat_content);
 
     // Save debug output if debug mode is enabled
@@ -350,19 +264,19 @@ pub async fn analyze_file(
                 info!("Performing vuln-specific analysis for {:?}", vuln_type);
                 if verbosity > 0 {
                     println!(
-                        "🔎 [{}] 脆弱性タイプ: {:?} の詳細解析",
+                        "🔎 [{}] 漏洞类型: {:?} 的详细分析",
                         file_path.display(),
                         vuln_type
                     );
                     if !stored_code_definitions.is_empty() {
-                        println!("  解析コンテキスト関数:");
+                        println!("  分析上下文函数:");
                         for (_, def) in &stored_code_definitions {
                             println!("    - {} ({}行)", def.name, def.source.lines().count());
                         }
                     }
-                    println!("  考慮バイパス: {}", vuln_info.bypasses.join(", "));
+                    println!("  需考虑的绕过: {}", vuln_info.bypasses.join(", "));
                     println!(
-                        "  追加プロンプト: {}",
+                        "  附加提示: {}",
                         &vuln_info.prompt.chars().take(40).collect::<String>()
                     );
                 }
@@ -408,16 +322,9 @@ pub async fn analyze_file(
                     }
                 }
 
-                let chat_req = ChatRequest::new(vec![
-                    ChatMessage::system(
-                        "You are a security vulnerability analyzer. You must reply with exactly one JSON object that matches this schema: { \"scratchpad\": string, \"analysis\": string, \"poc\": string, \"confidence_score\": integer, \"vulnerability_types\": array of strings, \"context_code\": array of objects with { \"name\": string, \"reason\": string, \"code_line\": string } }. Do not include any explanatory text outside the JSON object.",
-                    ),
-                    ChatMessage::user(&prompt),
-                ]);
-
-                let json_client = create_api_client(api_base_url);
-                let chat_content =
-                    execute_chat_request_with_retry(&json_client, model, chat_req, 2).await?;
+                let system_prompt = "You are a security vulnerability analyzer. You must reply with exactly one JSON object that matches this schema: { \"scratchpad\": string, \"analysis\": string, \"poc\": string, \"confidence_score\": integer, \"vulnerability_types\": array of strings }. Do not include any explanatory text outside the JSON object.";
+                let json_client = build_ai_client(api_base_url, model)?;
+                let chat_content = execute_chat_request_with_retry(&json_client, model, system_prompt, &prompt, 2).await?;
                 debug!("[LLM Response]\n{}", chat_content);
 
                 // Save debug output if debug mode is enabled
@@ -449,11 +356,11 @@ pub async fn analyze_file(
 
                 if verbosity > 0 {
                     debug!(
-                        "  LLM応答: confidence_score={}, vulnerability_types={:?}",
+                        "  LLM响应: confidence_score={}, vulnerability_types={:?}",
                         vuln_response.confidence_score, vuln_response.vulnerability_types
                     );
                     println!(
-                        "  analysis要約: {}",
+                        "  analysis摘要: {}",
                         &vuln_response.analysis.chars().take(60).collect::<String>()
                     );
                     if !vuln_response.par_analysis.policy_violations.is_empty() {
@@ -662,15 +569,9 @@ pub async fn analyze_pattern(
         }
     }
 
-    let chat_req = ChatRequest::new(vec![
-        ChatMessage::system(
-            "You are a security vulnerability analyzer. You must reply with exactly one JSON object that matches the PAR analysis schema with scratchpad, analysis, poc, confidence_score, vulnerability_types, par_analysis (with principals, actions, resources, policy_violations), and remediation_guidance fields. Do not include any explanatory text outside the JSON object.",
-        ),
-        ChatMessage::user(&prompt),
-    ]);
-
-    let json_client = create_api_client(api_base_url);
-    let chat_content = execute_chat_request(&json_client, model, chat_req).await?;
+    let system_prompt = "You are a security vulnerability analyzer. You must reply with exactly one JSON object that matches the PAR analysis schema with scratchpad, analysis, poc, confidence_score, vulnerability_types, par_analysis (with principals, actions, resources, policy_violations), and remediation_guidance fields. Do not include any explanatory text outside the JSON object.";
+    let json_client = build_ai_client(api_base_url, model)?;
+    let chat_content = json_client.chat_json(model, system_prompt, &prompt).await?;
     debug!("[PATTERN LLM Response]\n{}", chat_content);
 
     // Save debug output if debug mode is enabled

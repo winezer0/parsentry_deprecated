@@ -306,11 +306,20 @@ fn test_analysis_summary_sorting_by_confidence() {
 
 #[test]
 fn test_pathbuf_from_string() {
-    // Test path handling logic
-    let path_str = "/tmp/test/vulnerable.py";
+    // Test path handling logic with platform-specific absolute paths
+    use std::env::consts::OS;
+    
+    let (path_str, expected_str) = if OS == "windows" {
+        // Windows absolute path
+        ("C:\\tmp\\test\\vulnerable.py", "C:\\tmp\\test\\vulnerable.py")
+    } else {
+        // Unix absolute path
+        ("/tmp/test/vulnerable.py", "/tmp/test/vulnerable.py")
+    };
+    
     let path = PathBuf::from(path_str);
 
-    assert_eq!(path.to_string_lossy(), path_str);
+    assert_eq!(path.to_string_lossy(), expected_str);
     assert!(path.is_absolute());
     assert_eq!(path.extension().unwrap(), "py");
 }

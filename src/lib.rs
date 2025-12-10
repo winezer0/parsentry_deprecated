@@ -12,3 +12,4 @@ pub mod repo;
 pub mod reports;
 pub mod response;
 pub mod security_patterns;
+pub mod ai;

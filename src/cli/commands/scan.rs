@@ -17,12 +17,10 @@ use crate::reports::{AnalysisSummary, generate_output_filename, generate_pattern
 use crate::security_patterns::SecurityRiskPatterns;
 
 pub async fn run_scan_command(args: ScanArgs) -> Result<()> {
-    // Load configuration with precedence: CLI args > env vars > config file
-    let env_vars: std::collections::HashMap<String, String> = std::env::vars().collect();
+    // Load configuration with precedence: CLI args > config file
     let config = ParsentryConfig::load_with_precedence(
         args.config.clone(),
         &args,
-        &env_vars
     )?;
     
     // Convert config back to args for compatibility with existing code
@@ -58,7 +56,7 @@ pub async fn run_scan_command(args: ScanArgs) -> Result<()> {
             repo,
             dest.display()
         );
-        clone_github_repo(repo, &dest).map_err(|e| {
+        clone_github_repo(repo, &dest, config.repo.token.as_deref()).map_err(|e| {
             anyhow::anyhow!(
                 "{}: {}",
                 messages
@@ -93,7 +91,7 @@ pub async fn run_scan_command(args: ScanArgs) -> Result<()> {
                 .get("custom_pattern_generation_start")
                 .unwrap_or(&"Starting custom pattern generation mode")
         );
-        generate_custom_patterns(&root_dir, &final_args.model, api_base_url).await?;
+        generate_custom_patterns(&root_dir, &final_args.model, api_base_url, &config.api.api_keys).await?;
         println!(
             "✅ {}",
             messages

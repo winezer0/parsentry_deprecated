@@ -173,14 +173,14 @@ fn test_markdown_generation() {
     let markdown = response.to_markdown();
 
     // Verify markdown contains expected sections
-    assert!(markdown.contains("# Security Analysis Report"));
-    assert!(markdown.contains("信頼度スコア: 8"));
-    assert!(markdown.contains("## 脆弱性タイプ"));
+    assert!(markdown.contains("# 安全分析报告"));
+    assert!(markdown.contains("置信度分数: 8"));
+    assert!(markdown.contains("## 漏洞类型"));
     assert!(markdown.contains("RCE"));
     assert!(markdown.contains("SQLI"));
-    assert!(markdown.contains("## 詳細解析"));
+    assert!(markdown.contains("## 详细分析"));
     assert!(markdown.contains("This is a test analysis"));
-    assert!(markdown.contains("## PoC（概念実証コード）"));
+    assert!(markdown.contains("## PoC（概念验证代码）"));
     assert!(markdown.contains("echo 'test'"));
     // Note: context_code related sections no longer exist
 }

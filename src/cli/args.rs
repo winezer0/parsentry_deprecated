@@ -50,7 +50,7 @@ pub struct Args {
     #[arg(long, global = true)]
     pub api_base_url: Option<String>,
 
-    #[arg(long, default_value = "ja", global = true)]
+    #[arg(long, default_value = "zh", global = true)]
     pub language: String,
 
     #[arg(short, long, global = true)]
@@ -159,7 +159,7 @@ pub fn validate_scan_args(args: &ScanArgs) -> Result<()> {
     if let Some(output_dir) = &args.output_dir {
         if let Err(e) = crate::reports::validate_output_directory(output_dir) {
             eprintln!(
-                "❌ 出力ディレクトリのチェックに失敗: {}: {}",
+                "❌ 输出目录检查失败: {}: {}",
                 output_dir.display(),
                 e
             );

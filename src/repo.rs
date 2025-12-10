@@ -2,7 +2,6 @@ use crate::security_patterns::SecurityRiskPatterns;
 use anyhow::Result;
 use git2::{Cred, Error, FetchOptions, RemoteCallbacks, Repository};
 use std::{
-    env,
     fs::{File, read_dir, read_to_string},
     io::{BufRead, BufReader, Result as IoResult},
     path::{Path, PathBuf},
@@ -181,7 +180,7 @@ impl RepoOps {
         };
 
         if let Err(e) = self.visit_dirs(&self.repo_path, &mut callback) {
-            eprintln!("ディレクトリの走査中にエラーが発生しました: {}", e);
+            eprintln!("遍历目录时发生错误: {}", e);
         }
 
         files
@@ -234,7 +233,7 @@ impl RepoOps {
             Ok(files)
         } else {
             anyhow::bail!(
-                "指定された解析パスが存在しません: {}",
+                "指定的分析路径不存在: {}",
                 path_to_analyze.display()
             )
         }
@@ -281,14 +280,12 @@ impl RepoOps {
 /// # 引数
 /// - repo: "owner/repo" 形式のGitHubリポジトリ名
 /// - dest: clone先ディレクトリ
-pub fn clone_github_repo(repo: &str, dest: &Path) -> Result<(), Error> {
+pub fn clone_github_repo(repo: &str, dest: &Path, token: Option<&str>) -> Result<(), Error> {
     if dest.exists() {
         return Err(Error::from_str("Destination directory already exists"));
     }
 
     let url = format!("https://github.com/{}.git", repo);
-
-    let token = env::var("GITHUB_TOKEN").ok();
 
     let mut callbacks = RemoteCallbacks::new();
     if let Some(ref token) = token {

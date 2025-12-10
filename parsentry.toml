@@ -1,0 +1,30 @@
+# Parsentry Configuration File for Aliyun Qwen API
+# Created for code audit testing using Qwen-plus model
+
+[analysis]
+model = "qwen-plus"
+min_confidence = 70
+language = "en"
+debug = false
+evaluate = false
+verbosity = 1
+
+[paths]
+# root = "src"  # Uncomment to specify source code root directory
+# output_dir = "reports"  # Uncomment to specify output directory
+# analyze = "specific-file.rs"  # Uncomment to analyze a specific file
+
+[filtering]
+# vuln_types = ["SQLI", "XSS", "RCE"]  # Uncomment to filter vulnerability types
+
+[api]
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+[api.api_keys]
+dashscope = "sk-1fe2fabba4464a82b76144532249ec66"
+
+[repo]
+# url = "your-repo-url"  # Uncomment to analyze a remote repository
+
+[generation]
+generate_patterns = false

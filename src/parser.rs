@@ -288,7 +288,7 @@ impl CodeParser {
             let query = match Query::new(&language, &query_str) {
                 Ok(q) => q,
                 Err(e) => {
-                    eprintln!("警告: callsクエリの生成に失敗しました: {}", e);
+                    eprintln!("警告: callsクエリの生成に失敗しました: {}: {}", file_path.display(), e);
                     continue;
                 }
             };

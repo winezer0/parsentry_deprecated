@@ -19,7 +19,7 @@ pub async fn run_graph_command(args: GraphArgs) -> Result<()> {
             })?;
         }
         println!("🛠️  Cloning GitHub repository: {} → {}", repo, dest.display());
-        clone_github_repo(repo, &dest).map_err(|e| {
+        clone_github_repo(repo, &dest, None).map_err(|e| {
             anyhow::anyhow!("Failed to clone GitHub repository: {}", e)
         })?;
         
